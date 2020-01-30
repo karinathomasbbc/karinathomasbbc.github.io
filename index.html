@@ -1,0 +1,4527 @@
+<html>
+<meta http-equiv="refresh" content="300" />
+
+<head>
+    <style type="text/css">
+    body {
+      background-color: rgb(80, 80, 80);
+    }
+
+    a {
+      color: rgb(70, 165, 175);
+    }
+        h1 {
+          
+            font-family: Arial, sans-serif;
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            color: whitesmoke;
+        }
+        
+        .tg {
+            border-collapse: collapse;
+        }
+
+        .tg td {
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            padding: 2px 5px;
+            border-style: hidden;
+            border-width: 1px;
+            overflow: hidden;
+            word-break: normal;
+            border-color: rgba(0, 0, 0, 0.178);
+            text-align: left;
+            vertical-align: top;
+            color: whitesmoke;
+        }
+        
+        .tg th {
+            text-decoration: underline;
+            font-family: Arial, sans-serif;
+            font-size: 16px;
+            padding: 2px 5px;
+            border-style: hidden;
+            border-width: 1px;
+            overflow: hidden;
+            word-break: normal;
+            border-color: rgba(0, 0, 0, 0.178);
+            text-align: left;
+            vertical-align: top;
+            color: whitesmoke;
+        }
+        
+        .service {
+            font-weight: bold;
+            text-align: center;
+        }
+        
+        .status {
+            font-size: 8px;
+        }
+    </style>
+    <script lang="javascript">
+        const PASS = "&#9989;";
+        const FAIL = (message = '') => `<span title="Error${message}">&#10060;</span>`;
+
+        const PAGE_PASS = (platform = 'Canonical') => `<span title="${platform} Page OK">${PASS}</span>`;
+
+        const MEDIA_PASS = (platform = 'Canonical') => `<span title="${platform} Media OK">${PASS}</span>`;
+
+        const getSimorghPageStatus = (id, platform = 'Canonical') => {
+            return isSimorghPage(id) ? PAGE_PASS(platform) : FAIL(`:${platform} Page is not rendered by Simorgh`);
+        };
+
+        const getPALPageStatus = id => {
+            return isPALPage(id) ? PAGE_PASS('PAL') : FAIL(': Page is not rendered by PAL');
+        };
+
+        const getElementId = (service, env, pageType, suffix) => {
+            const elementId = `${service}_${env}_${pageType}_${suffix}`;
+            return elementId;
+        };
+
+        const getMediaStatus = async (outerHTML, platform = 'Canonical') => {
+            const mediaPage = new DOMParser().parseFromString(outerHTML, "text/html");
+            const selector = platform === 'Canonical' ? 'iframe' : 'amp-iframe';
+            const mediaPlayerContainer = mediaPage.querySelector(selector);
+            let mediaHTML = null;
+
+            if (mediaPlayerContainer !== null) {
+            const embedURL = mediaPlayerContainer.getAttribute('src');
+                mediaHTML = await makeRequest(embedURL).then(result => {return result});
+            }
+
+            return mediaHTML !== null ? MEDIA_PASS(platform) : FAIL(`- no media on ${platform}`);
+        };
+
+        const setStatus = async(service, pageType, environment) => {
+            const {
+                env, path, renderer
+            } = environment;
+            const { type, category } = pageType;
+            const elementId = getElementId(service, env, type, "status");
+            const canonicalUrl = getUrl(service, env, path);
+
+            const element = document.getElementById(elementId);
+
+            if (element) {
+                const validRenderers = ['Simorgh', 'PAL'];
+                const canonicalHTML = await makeRequest(canonicalUrl);
+                let canonicalPageStatus = '';
+                let canonicalMediaStatus = '';
+                let ampPageStatus = '';
+                let ampMediaStatus = '';
+
+                if (validRenderers.includes(renderer)) {
+                    if (renderer === "Simorgh") {
+                        canonicalPageStatus = getSimorghPageStatus(parseId(canonicalHTML)) ;
+                        const ampHTML = await makeRequest(canonicalUrl + '.amp');
+                        ampPageStatus = getSimorghPageStatus(parseId(ampHTML), 'AMP') ;
+
+                        if (category === 'media') {
+                            canonicalMediaStatus = await getMediaStatus(canonicalHTML);
+                            ampMediaStatus = await getMediaStatus(ampHTML, 'AMP');
+                        }
+                    } else {
+                        canonicalPageStatus = getPALPageStatus(parseId(canonicalHTML));
+                    }
+                }
+
+                let innerHTML = canonicalPageStatus + canonicalMediaStatus;
+
+                if (ampPageStatus) {
+                    innerHTML += `<br>${ampPageStatus}${ampMediaStatus}`;
+                }
+
+                element.innerHTML = innerHTML;
+            }
+        };
+
+        const setRenderer = (service, pageType, environment) => {
+            const {
+                env, path, renderer
+            } = environment;
+
+            if (renderer !== "") {
+                const elementId = getElementId(service, env, pageType, "renderer");
+                const url = getUrl(service, env, path);
+                const element = document.getElementById(elementId);
+                if (element) {
+                    element.innerHTML = `<a target="_blank" href="${url}">${renderer.substring(0,3).toUpperCase()}</a>`;
+                }
+            }
+        };
+
+        const setPageType = (service, pageType) => {
+            const elementId = `${service}_${pageType}`;
+            const element = document.getElementById(elementId);
+
+            if (element) {
+                element.innerHTML = pageType;
+            }
+        };
+
+        const handleResponse = response => {
+            let text = null;
+
+            try {
+                if (response.ok) {
+                    text = response.text();
+                } else {
+                    console.error(response);
+                }
+            } catch (e) {
+                console.error(e);
+            }
+
+            return text;
+        };
+
+        const parseId = html => {
+            let id = null;
+            if (html) {
+                var doc = new DOMParser().parseFromString(html, "text/html");
+                id = doc.documentElement.id;
+            }
+            return id;
+        };
+
+        const makeRequest = url => {
+            const prefix = "https://ws-media-cors.herokuapp.com/";
+            return fetch(`${prefix}${url}`)
+                .then(handleResponse)
+                .then(data =>  {return data})
+                .catch(error => {
+                    console.log(error);
+                    return null;
+                });
+        }
+
+        const getUrl = (service, environment, path) => {
+            const serv = service.split("/")[0];
+            let env = environment.split("_")[0];
+            env = env === "live" ? "" : `${env}.`;
+
+            let url = `https://www.${env}bbc.com/${service}`;
+
+            if (path != '') {
+                url += `/${path}`;
+            }
+
+            return url;
+        };
+
+        const isSimorghPage = id => {
+            return id === "";
+        };
+
+        const isPALPage = id => {
+            return id === "responsive-news";
+        };
+
+        const services = [{
+            service: "afaanoromoo",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: "bbc_afaanoromoo_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: "bbc_afaanoromoo_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: "bbc_afaanoromoo_radio/liveradio"
+                },{
+                    env: "test_oromo",
+                    renderer: "Simorgh",
+                    path: "bbc_oromo_radio/liveradio"
+                }, {
+                    env: "stage_oromo",
+                    renderer: "Simorgh",
+                    path: "bbc_oromo_radio/liveradio"
+                }, {
+                    env: "live_oromo",
+                    renderer: "PAL",
+                    path: "bbc_oromo_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "oduu-49490954"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "oduu-49490954"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "oduu-51103116"
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "afrique",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: "bbc_afrique_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: "bbc_afrique_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: "bbc_afrique_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "monde-49500638"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "monde-49500638"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "region-51111406"
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "amharic",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: "bbc_amharic_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: "bbc_amharic_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: "bbc_amharic_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "news-49562667"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "news-49562667"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "51030416"
+                }]
+            },
+            {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "arabic",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: "bbc_arabic_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "bbc_arabic_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "bbc_arabic_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "media-49580542"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "media-49580542"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "media-51123379"
+                }]
+            },
+            {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "azeri",
+            pageTypes: [{
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: 'PAL',
+                    path: 'region-49364777'
+                }, {
+                    env: "stage",
+                    renderer: 'PAL',
+                    path: 'region-49364777'
+                }, {
+                    env: "live",
+                    renderer: 'PAL',
+                    path: 'region-51069170'
+                }]
+            },
+            {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "bengali",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: "bbc_bangla_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: "bbc_bangla_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: "bbc_bangla_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "news-49579870"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "news-49579870"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "news-51095390"
+                }]
+            },
+            {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "burmese",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: "bbc_burmese_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: "bbc_burmese_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: "bbc_burmese_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "media-49571787"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "media-49571787"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "media-51097769"
+                }]
+            },
+            {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "cymrufyw",
+            pageTypes: []
+        }, {
+            service: "gahuza",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: "bbc_gahuza_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: "bbc_gahuza_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: "bbc_gahuza_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "amakuru-49534170"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "amakuru-49534170"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "amakuru-51108248"
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "gujarati",
+            pageTypes: [{
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: 'PAL',
+                    path: 'media-49502679'
+                }, {
+                    env: "stage",
+                    renderer: 'PAL',
+                    path: 'media-49502679'
+                }, {
+                    env: "live",
+                    renderer: 'PAL',
+                    path: 'media-51099136'
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "hausa",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: "bbc_hausa_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: "bbc_hausa_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: "bbc_hausa_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "labarai-49513456"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "labarai-49513456"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "labarai-51100239"
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "hindi",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: "bbc_hindi_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "bbc_hindi_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "bbc_hindi_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "media-51106346"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "media-51106346"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "media-51106346"
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "igbo",
+            pageTypes: [{
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: 'Simorgh',
+                    path: '23182843'
+                }, {
+                    env: "stage",
+                    renderer: 'Simorgh',
+                    path: '23182843'
+                }, {
+                    env: "live",
+                    renderer: 'Simorgh',
+                    path: 'afirika-51107146'
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "indonesia",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: "bbc_indonesian_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: "bbc_indonesian_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: "bbc_indonesian_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "media-49591990"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "media-49591990"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "media-51102836"
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "N/A",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "japanese",
+            pageTypes: [{
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: 'PAL',
+                    path: 'video-51291089'
+                }, {
+                    env: "stage",
+                    renderer: 'PAL',
+                    path: 'video-51291089'
+                }, {
+                    env: "live",
+                    renderer: 'PAL',
+                    path: 'video-51103346'
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "korean",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: "bbc_korean_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: "bbc_korean_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: "bbc_korean_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "news-48422241"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "news-48422241"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "news-48422241"
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "kyrgyz",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: "bbc_kyrgyz_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: "bbc_kyrgyz_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: "bbc_kyrgyz_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "sapar-tv-48695523"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "sapar-tv-48695523"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "entertainment-51113261"
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "marathi",
+            pageTypes: [{
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: 'PAL',
+                    path: 'india-48062804'
+                }, {
+                    env: "stage",
+                    renderer: 'PAL',
+                    path: 'india-48062804'
+                }, {
+                    env: "live",
+                    renderer: 'PAL',
+                    path: 'india-51095482'
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "mundo",
+            pageTypes: [{
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: 'PAL',
+                    path: 'noticias-49546078'
+                }, {
+                    env: "stage",
+                    renderer: 'PAL',
+                    path: 'noticias-49546078'
+                }, {
+                    env: "live",
+                    renderer: 'PAL',
+                    path: 'noticias-51099029'
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "naidheachdan",
+            pageTypes: []
+        }, {
+            service: "nepali",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: "bbc_nepali_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: "bbc_nepali_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: "bbc_nepali_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "news-49613544"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "news-49613544"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "news-51096149"
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "news",
+            pageTypes: []
+        }, {
+            service: "pashto",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: "bbc_pashto_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: "bbc_pashto_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: "bbc_pashto_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "afghanistan-49628873"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "afghanistan-49628873"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "afghanistan-51095893"
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "persian",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: "bbc_persian_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "bbc_persian_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "bbc_persian_radio/liveradio"
+                }, {
+                    env: "test_dari",
+                    renderer: "Simorgh",
+                    path: "bbc_dari_radio/liveradio"
+                }, {
+                    env: "stage_dari",
+                    renderer: "PAL",
+                    path: "bbc_dari_radio/liveradio"
+                }, {
+                    env: "live_dari",
+                    renderer: "PAL",
+                    path: "bbc_dari_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "iran-51114600"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "iran-51114600"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "iran-51114595"
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "pidgin",
+            pageTypes: [{
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: 'Simorgh',
+                    path: '23248703'
+                }, {
+                    env: "stage",
+                    renderer: 'Simorgh',
+                    path: '23248703'
+                }, {
+                    env: "live",
+                    renderer: 'Simorgh',
+                    path: 'tori-51096699'
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "portuguese",
+            pageTypes: [{
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: 'PAL',
+                    path: 'geral-49602758'
+                }, {
+                    env: "stage",
+                    renderer: 'PAL',
+                    path: 'geral-49602758'
+                }, {
+                    env: "live",
+                    renderer: 'PAL',
+                    path: 'geral-51092067'
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "punjabi",
+            pageTypes: [{
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: 'PAL',
+                    path: 'international-49567825'
+                }, {
+                    env: "stage",
+                    renderer: 'PAL',
+                    path: 'international-49567825'
+                }, {
+                    env: "live",
+                    renderer: 'PAL',
+                    path: 'india-51106988'
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "russian",
+            pageTypes: [{
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: 'PAL',
+                    path: 'media-49281069'
+                }, {
+                    env: "stage",
+                    renderer: 'PAL',
+                    path: 'media-49281069'
+                }, {
+                    env: "live",
+                    renderer: 'PAL',
+                    path: 'media-49281069'
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "scotland",
+            pageTypes: []
+        }, {
+            service: "serbian/cyr",
+            pageTypes: [{
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: 'PAL',
+                    path: 'svet-51052616'
+                }, {
+                    env: "stage",
+                    renderer: 'PAL',
+                    path: 'svet-51052616'
+                }, {
+                    env: "live",
+                    renderer: 'PAL',
+                    path: 'svet-51052616'
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "serbian/lat",
+            pageTypes: [{
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: 'PAL',
+                    path: 'svet-51096369'
+                }, {
+                    env: "stage",
+                    renderer: 'PAL',
+                    path: 'svet-51096369'
+                }, {
+                    env: "live",
+                    renderer: 'PAL',
+                    path: 'svet-51096369'
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "sinhala",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: "bbc_sinhala_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: "bbc_sinhala_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: "bbc_sinhala_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "sri-lanka-51249064"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "sri-lanka-51249064"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "sri-lanka-51037588"
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "somali",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: "bbc_somali_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: "bbc_somali_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: "bbc_somali_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "media-48870869"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "media-48870869"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "51050628"
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "swahili",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: "bbc_swahili_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: "bbc_swahili_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: "bbc_swahili_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "51106402"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "51106402"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "51106402"
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "tamil",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: "bbc_tamil_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: "bbc_tamil_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: "bbc_tamil_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "science-49626264"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "science-49626264"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "global-51099200"
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "telugu",
+            pageTypes: [{
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: 'PAL',
+                    path: 'india-49647976'
+                }, {
+                    env: "stage",
+                    renderer: 'PAL',
+                    path: 'india-49647976'
+                }, {
+                    env: "live",
+                    renderer: 'PAL',
+                    path: 'india-49647976'
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "thai",
+            pageTypes: [{
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: 'PAL',
+                    path: 'international-51113461'
+                }, {
+                    env: "stage",
+                    renderer: 'PAL',
+                    path: 'international-51113461'
+                }, {
+                    env: "live",
+                    renderer: 'PAL',
+                    path: 'international-51113461'
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "tigrinya",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: "bbc_tigrinya_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: "bbc_tigrinya_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: "bbc_tigrinya_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "news-51060789"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "news-51060789"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "news-51060789"
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "turkce",
+            pageTypes: [{
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: 'PAL',
+                    path: 'haberler-dunya-51110866'
+                }, {
+                    env: "stage",
+                    renderer: 'PAL',
+                    path: 'haberler-dunya-51110866'
+                }, {
+                    env: "live",
+                    renderer: 'PAL',
+                    path: 'haberler-dunya-51110866'
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "N/A",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "ukchina/simp",
+            pageTypes: [{
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: 'PAL',
+                    path: '51085214'
+                }, {
+                    env: "stage",
+                    renderer: 'PAL',
+                    path: '51085214'
+                }, {
+                    env: "live",
+                    renderer: 'PAL',
+                    path: '51085214'
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "ukchina/trad",
+            pageTypes: [{
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: 'PAL',
+                    path: '51085214'
+                }, {
+                    env: "stage",
+                    renderer: 'PAL',
+                    path: '51085214'
+                }, {
+                    env: "live",
+                    renderer: 'PAL',
+                    path: '51085214'
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "ukrainian",
+            pageTypes: [{
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: 'PAL',
+                    path: 'learningenglish-51110076'
+                }, {
+                    env: "stage",
+                    renderer: 'PAL',
+                    path: 'learningenglish-51110076'
+                }, {
+                    env: "live",
+                    renderer: 'PAL',
+                    path: 'learningenglish-51110076'
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "urdu",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: "bbc_urdu_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "bbc_urdu_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "bbc_urdu_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "pakistan-49644768"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "pakistan-49644768"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "pakistan-49644768"
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "N/A",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "uzbek",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: "bbc_uzbek_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "bbc_uzbek_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "bbc_uzbek_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "media-50461363"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "media-50461363"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "media-50461363"
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "vietnamese",
+            pageTypes: [{
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: 'PAL',
+                    path: 'media-49614583'
+                }, {
+                    env: "stage",
+                    renderer: 'PAL',
+                    path: 'media-49614583'
+                }, {
+                    env: "live",
+                    renderer: 'PAL',
+                    path: 'media-49614583'
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "N/A",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "yoruba",
+            pageTypes: [{
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: 'Simorgh',
+                    path: '23183994'
+                }, {
+                    env: "stage",
+                    renderer: 'Simorgh',
+                    path: '23183994'
+                }, {
+                    env: "live",
+                    renderer: 'Simorgh',
+                    path: 'media-42985961'
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "Simorgh",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "Simorgh",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "zhongwen/simp",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "bbc_cantonese_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "bbc_cantonese_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "bbc_cantonese_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "chinese-news-51088031"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "chinese-news-51088031"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "chinese-news-51088031"
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }, {
+            service: "zhongwen/trad",
+            pageTypes: [{
+                type: "liveRadio",
+                category: "media",
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "bbc_cantonese_radio/liveradio"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "bbc_cantonese_radio/liveradio"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "bbc_cantonese_radio/liveradio"
+                }]
+            }, {
+                type: "MAP",
+                category: 'media',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: "chinese-news-51088031"
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: "chinese-news-51088031"
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: "chinese-news-51088031"
+                }]
+            }, {
+                type: "home",
+                category: 'home',
+                environments: [{
+                    env: "test",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "stage",
+                    renderer: "PAL",
+                    path: ""
+                }, {
+                    env: "live",
+                    renderer: "PAL",
+                    path: ""
+                }]
+            }]
+        }];
+
+        const checkAllPages = async() => {
+            const params = location.search
+                .slice(1)
+                .split('&')
+                .map(p => p.split('='))
+                .reduce((obj, [key, value]) => ({...obj, [key]: value
+                }), {});
+
+            try {
+                let allServices = services;
+
+                if (params.service) {
+                    allServices = services.filter(serviceConfig => serviceConfig.service === params.service);
+                }
+
+                allServices.forEach(service => {
+
+                    let allPageTypes = service.pageTypes;
+
+                    if (params.pageType) {
+                        allPageTypes = service.pageTypes.filter(pageTypeConfig => pageTypeConfig.type === params.pageType);
+                    }
+
+                    if (params.category) {
+                        allPageTypes = allPageTypes.filter(pageTypeConfig => pageTypeConfig.category === params.category);
+                    }
+
+                    allPageTypes.forEach(pageType => {
+                        let allEnvironments = pageType.environments;
+
+                        if (params.env) {
+                            allEnvironments = pageType.environments.filter(environmentConfig => environmentConfig.env === params.env);
+                        }
+
+                        if (params.renderer) {
+                            allEnvironments = allEnvironments.filter(environmentConfig => environmentConfig.renderer === params.renderer);
+                        }
+
+                        allEnvironments.forEach(environment => {
+                            const serviceName = service.service;
+                            const page = pageType.type;
+                            const {
+                                env, renderer
+                            } = environment;
+
+                            if (environment.renderer !== '') {
+                                setPageType(serviceName, page);
+                                setStatus(serviceName, pageType, environment);
+                                setRenderer(serviceName, page, environment);
+                            }
+                        })
+                    })
+                });
+            } catch (e) {
+                //Nothing for the moment
+            }
+        };
+
+        const getSimorghStats = () => {
+
+        }
+
+        const loadData = async() => {
+            checkAllPages();
+            getSimorghStats();
+        };
+    </script>
+</head>
+<h1>BBC World Service - Page Status</h1>
+<title>BBC World Service - Page Status</title>
+<body onload="loadData()">
+    <table align='left' class='tg' style="display: none;">
+        <th colspan="3">Simorgh Statistics</th>
+            <tr>
+                <th>Test</th>
+                <th>Stage</th>
+                <th>Live</th>
+            </tr>
+            <tr>
+                <td id='environment_test'></td>
+                <td id='environment_stage'></td>
+                <td id='environment_live'></td>
+            </tr>
+        </tr>
+    </table>
+    <table align="center">
+        <td valign="top">
+            <table id='col-1' class="tg">
+                <tr>
+                    <th></th>
+                    <th>Test</th>
+                    <th>Stage</th>
+                    <th>Live</th>
+                </tr>
+
+                <!-- afaanoromoo -->
+                <tr>
+                    <th colspan="4">afaanoromoo</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="afaanoromoo_liveRadio"></td>
+                    <td>
+                        <span class="status" id="afaanoromoo_test_liveRadio_status"></span>
+                        <span id="afaanoromoo_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="afaanoromoo_stage_liveRadio_status"></span>
+                        <span id="afaanoromoo_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="afaanoromoo_live_liveRadio_status"></span>
+                        <span id="afaanoromoo_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="afaanoromoo_MAP"></td>
+                    <td>
+                        <span class="status" id="afaanoromoo_test_MAP_status"></span>
+                        <span id="afaanoromoo_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="afaanoromoo_stage_MAP_status"></span>
+                        <span id="afaanoromoo_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="afaanoromoo_live_MAP_status"></span>
+                        <span id="afaanoromoo_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="afaanoromoo_home"></td>
+                    <td>
+                        <span class="status" id="afaanoromoo_test_home_status"></span>
+                        <span id="afaanoromoo_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="afaanoromoo_stage_home_status"></span>
+                        <span id="afaanoromoo_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="afaanoromoo_live_home_status"></span>
+                        <span id="afaanoromoo_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- afaanoromoo (oromo) -->
+                <tr>
+                    <th colspan="4">afaanoromoo - oromo - radio</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="afaanoromoo_liveRadio"></td>
+                    <td>
+                        <span class="status" id="afaanoromoo_test_oromo_liveRadio_status"></span>
+                        <span id="afaanoromoo_test_oromo_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="afaanoromoo_stage_oromo_liveRadio_status"></span>
+                        <span id="afaanoromoo_stage_oromo_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="afaanoromoo_live_oromo_liveRadio_status"></span>
+                        <span id="afaanoromoo_live_oromo_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- afrique -->
+                <tr>
+                    <th colspan="4">afrique</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="afrique_liveRadio"></td>
+                    <td>
+                        <span class="status" id="afrique_test_liveRadio_status"></span>
+                        <span id="afrique_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="afrique_stage_liveRadio_status"></span>
+                        <span id="afrique_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="afrique_live_liveRadio_status"></span>
+                        <span id="afrique_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="afrique_MAP"></td>
+                    <td>
+                        <span class="status" id="afrique_test_MAP_status"></span>
+                        <span id="afrique_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="afrique_stage_MAP_status"></span>
+                        <span id="afrique_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="afrique_live_MAP_status"></span>
+                        <span id="afrique_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="afrique_home"></td>
+                    <td>
+                        <span class="status" id="afrique_test_home_status"></span>
+                        <span id="afrique_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="afrique_stage_home_status"></span>
+                        <span id="afrique_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="afrique_live_home_status"></span>
+                        <span id="afrique_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+
+                <!-- amharic -->
+                <tr>
+                    <th colspan="4">amharic</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="amharic_liveRadio"></td>
+                    <td>
+                        <span class="status" id="amharic_test_liveRadio_status"></span>
+                        <span id="amharic_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="amharic_stage_liveRadio_status"></span>
+                        <span id="amharic_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="amharic_live_liveRadio_status"></span>
+                        <span id="amharic_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="amharic_MAP"></td>
+                    <td>
+                        <span class="status" id="amharic_test_MAP_status"></span>
+                        <span id="amharic_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="amharic_stage_MAP_status"></span>
+                        <span id="amharic_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="amharic_live_MAP_status"></span>
+                        <span id="amharic_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="amharic_home"></td>
+                    <td>
+                        <span class="status" id="amharic_test_home_status"></span>
+                        <span id="amharic_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="amharic_stage_home_status"></span>
+                        <span id="amharic_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="amharic_live_home_status"></span>
+                        <span id="amharic_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- arabic -->
+                <tr>
+                    <th colspan="4">arabic</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="arabic_liveRadio"></td>
+                    <td>
+                        <span class="status" id="arabic_test_liveRadio_status"></span>
+                        <span id="arabic_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="arabic_stage_liveRadio_status"></span>
+                        <span id="arabic_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="arabic_live_liveRadio_status"></span>
+                        <span id="arabic_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="arabic_MAP"></td>
+                    <td>
+                        <span class="status" id="arabic_test_MAP_status"></span>
+                        <span id="arabic_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="arabic_stage_MAP_status"></span>
+                        <span id="arabic_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="arabic_live_MAP_status"></span>
+                        <span id="arabic_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="arabic_home"></td>
+                    <td>
+                        <span class="status" id="arabic_test_home_status"></span>
+                        <span id="arabic_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="arabic_stage_home_status"></span>
+                        <span id="arabic_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="arabic_live_home_status"></span>
+                        <span id="arabic_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- azeri -->
+                <tr>
+                    <th colspan="4">azeri</th>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="azeri_MAP"></td>
+                    <td>
+                        <span class="status" id="azeri_test_MAP_status"></span>
+                        <span id="azeri_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="azeri_stage_MAP_status"></span>
+                        <span id="azeri_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="azeri_live_MAP_status"></span>
+                        <span id="azeri_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="azeri_home"></td>
+                    <td>
+                        <span class="status" id="azeri_test_home_status"></span>
+                        <span id="azeri_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="azeri_stage_home_status"></span>
+                        <span id="azeri_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="azeri_live_home_status"></span>
+                        <span id="azeri_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- bengali -->
+                <tr>
+                    <th colspan="4">bengali</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="bengali_liveRadio"></td>
+                    <td>
+                        <span class="status" id="bengali_test_liveRadio_status"></span>
+                        <span id="bengali_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="bengali_stage_liveRadio_status"></span>
+                        <span id="bengali_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="bengali_live_liveRadio_status"></span>
+                        <span id="bengali_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="bengali_MAP"></td>
+                    <td>
+                        <span class="status" id="bengali_test_MAP_status"></span>
+                        <span id="bengali_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="bengali_stage_MAP_status"></span>
+                        <span id="bengali_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="bengali_live_MAP_status"></span>
+                        <span id="bengali_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="bengali_home"></td>
+                    <td>
+                        <span class="status" id="bengali_test_home_status"></span>
+                        <span id="bengali_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="bengali_stage_home_status"></span>
+                        <span id="bengali_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="bengali_live_home_status"></span>
+                        <span id="bengali_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- Burmese -->
+                <tr>
+                    <th colspan="4">burmese</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="burmese_liveRadio"></td>
+                    <td>
+                        <span class="status" id="burmese_test_liveRadio_status"></span>
+                        <span id="burmese_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="burmese_stage_liveRadio_status"></span>
+                        <span id="burmese_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="burmese_live_liveRadio_status"></span>
+                        <span id="burmese_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="burmese_MAP"></td>
+                    <td>
+                        <span class="status" id="burmese_test_MAP_status"></span>
+                        <span id="burmese_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="burmese_stage_MAP_status"></span>
+                        <span id="burmese_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="burmese_live_MAP_status"></span>
+                        <span id="burmese_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="burmese_home"></td>
+                    <td>
+                        <span class="status" id="burmese_test_home_status"></span>
+                        <span id="burmese_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="burmese_stage_home_status"></span>
+                        <span id="burmese_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="burmese_live_home_status"></span>
+                        <span id="burmese_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+        </td>
+        </table>
+
+        <td valign="top">
+            <table id="col-2" class="tg">
+                <tr>
+                    <th></th>
+                    <th>Test</th>
+                    <th>Stage</th>
+                    <th>Live</th>
+                </tr>
+                <!-- gahuza -->
+                <tr>
+                    <th colspan="4">gahuza</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="gahuza_liveRadio"></td>
+                    <td>
+                        <span class="status" id="gahuza_test_liveRadio_status"></span>
+                        <span id="gahuza_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="gahuza_stage_liveRadio_status"></span>
+                        <span id="gahuza_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="gahuza_live_liveRadio_status"></span>
+                        <span id="gahuza_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="gahuza_MAP"></td>
+                    <td>
+                        <span class="status" id="gahuza_test_MAP_status"></span>
+                        <span id="gahuza_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="gahuza_stage_MAP_status"></span>
+                        <span id="gahuza_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="gahuza_live_MAP_status"></span>
+                        <span id="gahuza_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="gahuza_home"></td>
+                    <td>
+                        <span class="status" id="gahuza_test_home_status"></span>
+                        <span id="gahuza_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="gahuza_stage_home_status"></span>
+                        <span id="gahuza_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="gahuza_live_home_status"></span>
+                        <span id="gahuza_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- gujarati -->
+                <th colspan="4">gujarati</th>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="gujarati_MAP"></td>
+                    <td>
+                        <span class="status" id="gujarati_test_MAP_status"></span>
+                        <span id="gujarati_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="gujarati_stage_MAP_status"></span>
+                        <span id="gujarati_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="gujarati_live_MAP_status"></span>
+                        <span id="gujarati_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="gujarati_home"></td>
+                    <td>
+                        <span class="status" id="gujarati_test_home_status"></span>
+                        <span id="gujarati_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="gujarati_stage_home_status"></span>
+                        <span id="gujarati_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="gujarati_live_home_status"></span>
+                        <span id="gujarati_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- hausa -->
+                <tr>
+                    <th colspan="4">hausa</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="hausa_liveRadio"></td>
+                    <td>
+                        <span class="status" id="hausa_test_liveRadio_status"></span>
+                        <span id="hausa_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="hausa_stage_liveRadio_status"></span>
+                        <span id="hausa_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="hausa_live_liveRadio_status"></span>
+                        <span id="hausa_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="hausa_MAP"></td>
+                    <td>
+                        <span class="status" id="hausa_test_MAP_status"></span>
+                        <span id="hausa_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="hausa_stage_MAP_status"></span>
+                        <span id="hausa_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="hausa_live_MAP_status"></span>
+                        <span id="hausa_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="hausa_home"></td>
+                    <td>
+                        <span class="status" id="hausa_test_home_status"></span>
+                        <span id="hausa_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="hausa_stage_home_status"></span>
+                        <span id="hausa_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="hausa_live_home_status"></span>
+                        <span id="hausa_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- hindi -->
+                <tr>
+                    <th colspan="4">hindi</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="hindi_liveRadio"></td>
+                    <td>
+                        <span class="status" id="hindi_test_liveRadio_status"></span>
+                        <span id="hindi_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="hindi_stage_liveRadio_status"></span>
+                        <span id="hindi_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="hindi_live_liveRadio_status"></span>
+                        <span id="hindi_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="hindi_MAP"></td>
+                    <td>
+                        <span class="status" id="hindi_test_MAP_status"></span>
+                        <span id="hindi_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="hindi_stage_MAP_status"></span>
+                        <span id="hindi_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="hindi_live_MAP_status"></span>
+                        <span id="hindi_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="hindi_home"></td>
+                    <td>
+                        <span class="status" id="hindi_test_home_status"></span>
+                        <span id="hindi_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="hindi_stage_home_status"></span>
+                        <span id="hindi_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="hindi_live_home_status"></span>
+                        <span id="hindi_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- indonesia -->
+                <tr>
+                    <th colspan="4">indonesia</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="indonesia_liveRadio"></td>
+                    <td>
+                        <span class="status" id="indonesia_test_liveRadio_status"></span>
+                        <span id="indonesia_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="indonesia_stage_liveRadio_status"></span>
+                        <span id="indonesia_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="indonesia_live_liveRadio_status"></span>
+                        <span id="indonesia_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="indonesia_MAP"></td>
+                    <td>
+                        <span class="status" id="indonesia_test_MAP_status"></span>
+                        <span id="indonesia_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="indonesia_stage_MAP_status"></span>
+                        <span id="indonesia_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="indonesia_live_MAP_status"></span>
+                        <span id="indonesia_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="indonesia_home"></td>
+                    <td>
+                        <span class="status" id="indonesia_test_home_status"></span>
+                        <span id="indonesia_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="indonesia_stage_home_status"></span>
+                        <span id="indonesia_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="indonesia_live_home_status"></span>
+                        <span id="indonesia_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- igbo -->
+                <tr>
+                    <th colspan="4">igbo</th>
+                </tr>
+                <!-- MAP -->
+                <tr>
+                <td id="igbo_MAP"></td>
+                <td>
+                    <span class="status" id="igbo_test_MAP_status"></span>
+                    <span id="igbo_test_MAP_renderer"></span>
+                </td>
+                <td>
+                    <span class="status" id="igbo_stage_MAP_status"></span>
+                    <span id="igbo_stage_MAP_renderer"></span>
+                </td>
+                <td>
+                    <span class="status" id="igbo_live_MAP_status"></span>
+                    <span id="igbo_live_MAP_renderer"></span>
+                </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="igbo_home"></td>
+                    <td>
+                        <span class="status" id="igbo_test_home_status"></span>
+                        <span id="igbo_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="igbo_stage_home_status"></span>
+                        <span id="igbo_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="igbo_live_home_status"></span>
+                        <span id="igbo_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- japanese -->
+                <tr>
+                    <th colspan="4">japanese</th>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="japanese_MAP"></td>
+                    <td>
+                        <span class="status" id="japanese_test_MAP_status"></span>
+                        <span id="japanese_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="japanese_stage_MAP_status"></span>
+                        <span id="japanese_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="japanese_live_MAP_status"></span>
+                        <span id="japanese_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="japanese_home"></td>
+                    <td>
+                        <span class="status" id="japanese_test_home_status"></span>
+                        <span id="japanese_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="japanese_stage_home_status"></span>
+                        <span id="japanese_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="japanese_live_home_status"></span>
+                        <span id="japanese_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- Korean -->
+                <tr>
+                    <th colspan="4">korean</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="korean_liveRadio"></td>
+                    <td>
+                        <span class="status" id="korean_test_liveRadio_status"></span>
+                        <span id="korean_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="korean_stage_liveRadio_status"></span>
+                        <span id="korean_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="korean_live_liveRadio_status"></span>
+                        <span id="korean_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- MAP -->
+                <tr>
+                    <td id="korean_MAP"></td>
+                    <td>
+                        <span class="status" id="korean_test_MAP_status"></span>
+                        <span id="korean_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="korean_stage_MAP_status"></span>
+                        <span id="korean_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="korean_live_MAP_status"></span>
+                        <span id="korean_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="korean_home"></td>
+                    <td>
+                        <span class="status" id="korean_test_home_status"></span>
+                        <span id="korean_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="korean_stage_home_status"></span>
+                        <span id="korean_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="korean_live_home_status"></span>
+                        <span id="korean_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+        </td>
+        </table>
+
+        <td valign="top">
+            <table id="col-3" class="tg">
+                <tr>
+                    <th></th>
+                    <th>Test</th>
+                    <th>Stage</th>
+                    <th>Live</th>
+                </tr>
+                <!-- kyrgyz -->
+                <tr>
+                    <th colspan="4">kyrgyz</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="kyrgyz_liveRadio"></td>
+                    <td>
+                        <span class="status" id="kyrgyz_test_liveRadio_status"></span>
+                        <span id="kyrgyz_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="kyrgyz_stage_liveRadio_status"></span>
+                        <span id="kyrgyz_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="kyrgyz_live_liveRadio_status"></span>
+                        <span id="kyrgyz_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="kyrgyz_MAP"></td>
+                    <td>
+                        <span class="status" id="kyrgyz_test_MAP_status"></span>
+                        <span id="kyrgyz_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="kyrgyz_stage_MAP_status"></span>
+                        <span id="kyrgyz_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="kyrgyz_live_MAP_status"></span>
+                        <span id="kyrgyz_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="kyrgyz_home"></td>
+                    <td>
+                        <span class="status" id="kyrgyz_test_home_status"></span>
+                        <span id="kyrgyz_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="kyrgyz_stage_home_status"></span>
+                        <span id="kyrgyz_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="kyrgyz_live_home_status"></span>
+                        <span id="kyrgyz_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- marathi -->
+                <tr>
+                    <th colspan="4">marathi</th>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="marathi_MAP"></td>
+                    <td>
+                        <span class="status" id="marathi_test_MAP_status"></span>
+                        <span id="marathi_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="marathi_stage_MAP_status"></span>
+                        <span id="marathi_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="marathi_live_MAP_status"></span>
+                        <span id="marathi_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="marathi_home"></td>
+                    <td>
+                        <span class="status" id="marathi_test_home_status"></span>
+                        <span id="marathi_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="marathi_stage_home_status"></span>
+                        <span id="marathi_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="marathi_live_home_status"></span>
+                        <span id="marathi_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>                
+                <!-- mundo -->
+                <tr>
+                    <th colspan="4">mundo</th>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="mundo_MAP"></td>
+                    <td>
+                        <span class="status" id="mundo_test_MAP_status"></span>
+                        <span id="mundo_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="mundo_stage_MAP_status"></span>
+                        <span id="mundo_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="mundo_live_MAP_status"></span>
+                        <span id="mundo_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="mundo_home"></td>
+                    <td>
+                        <span class="status" id="mundo_test_home_status"></span>
+                        <span id="mundo_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="mundo_stage_home_status"></span>
+                        <span id="mundo_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="mundo_live_home_status"></span>
+                        <span id="mundo_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- nepali -->
+                <tr>
+                    <th colspan="4">nepali</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="nepali_liveRadio"></td>
+                    <td>
+                        <span class="status" id="nepali_test_liveRadio_status"></span>
+                        <span id="nepali_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="nepali_stage_liveRadio_status"></span>
+                        <span id="nepali_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="nepali_live_liveRadio_status"></span>
+                        <span id="nepali_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="nepali_MAP"></td>
+                    <td>
+                        <span class="status" id="nepali_test_MAP_status"></span>
+                        <span id="nepali_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="nepali_stage_MAP_status"></span>
+                        <span id="nepali_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="nepali_live_MAP_status"></span>
+                        <span id="nepali_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="nepali_home"></td>
+                    <td>
+                        <span class="status" id="nepali_test_home_status"></span>
+                        <span id="nepali_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="nepali_stage_home_status"></span>
+                        <span id="nepali_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="nepali_live_home_status"></span>
+                        <span id="nepali_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- Pashto -->
+                <tr>
+                    <th colspan="4">pashto</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="pashto_liveRadio"></td>
+                    <td>
+                        <span class="status" id="pashto_test_liveRadio_status"></span>
+                        <span id="pashto_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="pashto_stage_liveRadio_status"></span>
+                        <span id="pashto_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="pashto_live_liveRadio_status"></span>
+                        <span id="pashto_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="pashto_MAP"></td>
+                    <td>
+                        <span class="status" id="pashto_test_MAP_status"></span>
+                        <span id="pashto_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="pashto_stage_MAP_status"></span>
+                        <span id="pashto_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="pashto_live_MAP_status"></span>
+                        <span id="pashto_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="pashto_home"></td>
+                    <td>
+                        <span class="status" id="pashto_test_home_status"></span>
+                        <span id="pashto_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="pashto_stage_home_status"></span>
+                        <span id="pashto_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="pashto_live_home_status"></span>
+                        <span id="pashto_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- persian -->
+                <tr>
+                    <th colspan="4">persian</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="persian_liveRadio"></td>
+                    <td>
+                        <span class="status" id="persian_test_liveRadio_status"></span>
+                        <span id="persian_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="persian_stage_liveRadio_status"></span>
+                        <span id="persian_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="persian_live_liveRadio_status"></span>
+                        <span id="persian_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="persian_MAP"></td>
+                    <td>
+                        <span class="status" id="persian_test_MAP_status"></span>
+                        <span id="persian_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="persian_stage_MAP_status"></span>
+                        <span id="persian_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="persian_live_MAP_status"></span>
+                        <span id="persian_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="persian_home"></td>
+                    <td>
+                        <span class="status" id="persian_test_home_status"></span>
+                        <span id="persian_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="persian_stage_home_status"></span>
+                        <span id="persian_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="persian_live_home_status"></span>
+                        <span id="persian_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- persian (dari) -->
+                <tr>
+                    <th colspan="4">persian - dari - radio</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="persian_liveRadio"></td>
+                    <td>
+                        <span class="status" id="persian_test_dari_liveRadio_status"></span>
+                        <span id="persian_test_dari_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="persian_stage_dari_liveRadio_status"></span>
+                        <span id="persian_stage_dari_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="persian_live_dari_liveRadio_status"></span>
+                        <span id="persian_live_dari_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- pidgin -->
+                <tr>
+                    <th colspan="4">pidgin</th>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="pidgin_MAP"></td>
+                    <td>
+                        <span class="status" id="pidgin_test_MAP_status"></span>
+                        <span id="pidgin_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="pidgin_stage_MAP_status"></span>
+                        <span id="pidgin_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="pidgin_live_MAP_status"></span>
+                        <span id="pidgin_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="pidgin_home"></td>
+                    <td>
+                        <span class="status" id="pidgin_test_home_status"></span>
+                        <span id="pidgin_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="pidgin_stage_home_status"></span>
+                        <span id="pidgin_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="pidgin_live_home_status"></span>
+                        <span id="pidgin_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+        </td>
+        </table>
+
+        <td valign="top">
+            <table class="tg" id="col-4">
+                <tr>
+                    <th></th>
+                    <th>Test</th>
+                    <th>Stage</th>
+                    <th>Live</th>
+                </tr>
+
+                <!-- portuguese -->
+                <tr>
+                    <th colspan="4">portuguese</th>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="portuguese_MAP"></td>
+                    <td>
+                        <span class="status" id="portuguese_test_MAP_status"></span>
+                        <span id="portuguese_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="portuguese_stage_MAP_status"></span>
+                        <span id="portuguese_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="portuguese_live_MAP_status"></span>
+                        <span id="portuguese_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="portuguese_home"></td>
+                    <td>
+                        <span class="status" id="portuguese_test_home_status"></span>
+                        <span id="portuguese_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="portuguese_stage_home_status"></span>
+                        <span id="portuguese_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="portuguese_live_home_status"></span>
+                        <span id="portuguese_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- punjabi -->
+                <tr>
+                    <th colspan="4">punjabi</th>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="punjabi_MAP"></td>
+                    <td>
+                        <span class="status" id="punjabi_test_MAP_status"></span>
+                        <span id="punjabi_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="punjabi_stage_MAP_status"></span>
+                        <span id="punjabi_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="punjabi_live_MAP_status"></span>
+                        <span id="punjabi_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="punjabi_home"></td>
+                    <td>
+                        <span class="status" id="punjabi_test_home_status"></span>
+                        <span id="punjabi_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="punjabi_stage_home_status"></span>
+                        <span id="punjabi_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="punjabi_live_home_status"></span>
+                        <span id="punjabi_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- russian -->
+                <tr>
+                    <th colspan="4">russian</th>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="russian_MAP"></td>
+                    <td>
+                        <span class="status" id="russian_test_MAP_status"></span>
+                        <span id="russian_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="russian_stage_MAP_status"></span>
+                        <span id="russian_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="russian_live_MAP_status"></span>
+                        <span id="russian_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="russian_home"></td>
+                    <td>
+                        <span class="status" id="russian_test_home_status"></span>
+                        <span id="russian_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="russian_stage_home_status"></span>
+                        <span id="russian_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="russian_live_home_status"></span>
+                        <span id="russian_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- serbian (cyr) -->
+                <tr>
+                    <th colspan="4">serbian/cyr</th>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="serbian/cyr_MAP"></td>
+                    <td>
+                        <span class="status" id="serbian/cyr_test_MAP_status"></span>
+                        <span id="serbian/cyr_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="serbian/cyr_stage_MAP_status"></span>
+                        <span id="serbian/cyr_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="serbian/cyr_live_MAP_status"></span>
+                        <span id="serbian/cyr_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="serbian/cyr_home"></td>
+                    <td>
+                        <span class="status" id="serbian/cyr_test_home_status"></span>
+                        <span id="serbian/cyr_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="serbian/cyr_stage_home_status"></span>
+                        <span id="serbian/cyr_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="serbian/cyr_live_home_status"></span>
+                        <span id="serbian/cyr_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+
+                <!-- serbian (lat) -->
+                <tr>
+                    <th colspan="4">serbian/lat</th>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="serbian/lat_MAP"></td>
+                    <td>
+                        <span class="status" id="serbian/lat_test_MAP_status"></span>
+                        <span id="serbian/lat_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="serbian/lat_stage_MAP_status"></span>
+                        <span id="serbian/lat_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="serbian/lat_live_MAP_status"></span>
+                        <span id="serbian/lat_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="serbian/lat_home"></td>
+                    <td>
+                        <span class="status" id="serbian/lat_test_home_status"></span>
+                        <span id="serbian/lat_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="serbian/lat_stage_home_status"></span>
+                        <span id="serbian/lat_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="serbian/lat_live_home_status"></span>
+                        <span id="serbian/lat_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- sinhala -->
+                <tr>
+                    <th colspan="4">sinhala</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="sinhala_liveRadio"></td>
+                    <td>
+                        <span class="status" id="sinhala_test_liveRadio_status"></span>
+                        <span id="sinhala_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="sinhala_stage_liveRadio_status"></span>
+                        <span id="sinhala_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="sinhala_live_liveRadio_status"></span>
+                        <span id="sinhala_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="sinhala_MAP"></td>
+                    <td>
+                        <span class="status" id="sinhala_test_MAP_status"></span>
+                        <span id="sinhala_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="sinhala_stage_MAP_status"></span>
+                        <span id="sinhala_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="sinhala_live_MAP_status"></span>
+                        <span id="sinhala_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="sinhala_home"></td>
+                    <td>
+                        <span class="status" id="sinhala_test_home_status"></span>
+                        <span id="sinhala_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="sinhala_stage_home_status"></span>
+                        <span id="sinhala_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="sinhala_live_home_status"></span>
+                        <span id="sinhala_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- somali -->
+                <tr>
+                    <th colspan="4">somali</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="somali_liveRadio"></td>
+                    <td>
+                        <span class="status" id="somali_test_liveRadio_status"></span>
+                        <span id="somali_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="somali_stage_liveRadio_status"></span>
+                        <span id="somali_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="somali_live_liveRadio_status"></span>
+                        <span id="somali_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="somali_MAP"></td>
+                    <td>
+                        <span class="status" id="somali_test_MAP_status"></span>
+                        <span id="somali_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="somali_stage_MAP_status"></span>
+                        <span id="somali_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="somali_live_MAP_status"></span>
+                        <span id="somali_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="somali_home"></td>
+                    <td>
+                        <span class="status" id="somali_test_home_status"></span>
+                        <span id="somali_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="somali_stage_home_status"></span>
+                        <span id="somali_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="somali_live_home_status"></span>
+                        <span id="somali_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- swahili -->
+                <tr>
+                    <th colspan="4">swahili</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="swahili_liveRadio"></td>
+                    <td>
+                        <span class="status" id="swahili_test_liveRadio_status"></span>
+                        <span id="swahili_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="swahili_stage_liveRadio_status"></span>
+                        <span id="swahili_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="swahili_live_liveRadio_status"></span>
+                        <span id="swahili_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="swahili_MAP"></td>
+                    <td>
+                        <span class="status" id="swahili_test_MAP_status"></span>
+                        <span id="swahili_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="swahili_stage_MAP_status"></span>
+                        <span id="swahili_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="swahili_live_MAP_status"></span>
+                        <span id="swahili_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="swahili_home"></td>
+                    <td>
+                        <span class="status" id="swahili_test_home_status"></span>
+                        <span id="swahili_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="swahili_stage_home_status"></span>
+                        <span id="swahili_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="swahili_live_home_status"></span>
+                        <span id="swahili_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+        </td>
+        </table>
+
+        <td valign="top">
+            <table class="tg">
+                <tr>
+                    <th></th>
+                    <th>Test</th>
+                    <th>Stage</th>
+                    <th>Live</th>
+                </tr>
+
+                <!-- tamil -->
+                <tr>
+                    <th colspan="4">tamil</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="tamil_liveRadio"></td>
+                    <td>
+                        <span class="status" id="tamil_test_liveRadio_status"></span>
+                        <span id="tamil_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="tamil_stage_liveRadio_status"></span>
+                        <span id="tamil_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="tamil_live_liveRadio_status"></span>
+                        <span id="tamil_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="tamil_MAP"></td>
+                    <td>
+                        <span class="status" id="tamil_test_MAP_status"></span>
+                        <span id="tamil_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="tamil_stage_MAP_status"></span>
+                        <span id="tamil_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="tamil_live_MAP_status"></span>
+                        <span id="tamil_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="tamil_home"></td>
+                    <td>
+                        <span class="status" id="tamil_test_home_status"></span>
+                        <span id="tamil_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="tamil_stage_home_status"></span>
+                        <span id="tamil_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="tamil_live_home_status"></span>
+                        <span id="tamil_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- telugu -->
+                <tr>
+                    <th colspan="4">telugu</th>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="telugu_MAP"></td>
+                    <td>
+                        <span class="status" id="telugu_test_MAP_status"></span>
+                        <span id="telugu_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="telugu_stage_MAP_status"></span>
+                        <span id="telugu_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="telugu_live_MAP_status"></span>
+                        <span id="telugu_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="telugu_home"></td>
+                    <td>
+                        <span class="status" id="telugu_test_home_status"></span>
+                        <span id="telugu_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="telugu_stage_home_status"></span>
+                        <span id="telugu_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="telugu_live_home_status"></span>
+                        <span id="telugu_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- thai -->
+                <tr>
+                    <th colspan="4">thai</th>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="thai_MAP"></td>
+                    <td>
+                        <span class="status" id="thai_test_MAP_status"></span>
+                        <span id="thai_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="thai_stage_MAP_status"></span>
+                        <span id="thai_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="thai_live_MAP_status"></span>
+                        <span id="thai_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="thai_home"></td>
+                    <td>
+                        <span class="status" id="thai_test_home_status"></span>
+                        <span id="thai_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="thai_stage_home_status"></span>
+                        <span id="thai_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="thai_live_home_status"></span>
+                        <span id="thai_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- Tigrinya -->
+                <tr>
+                    <th colspan="4">tigrinya</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="tigrinya_liveRadio"></td>
+                    <td>
+                        <span class="status" id="tigrinya_test_liveRadio_status"></span>
+                        <span id="tigrinya_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="tigrinya_stage_liveRadio_status"></span>
+                        <span id="tigrinya_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="tigrinya_live_liveRadio_status"></span>
+                        <span id="tigrinya_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="tigrinya_MAP"></td>
+                    <td>
+                        <span class="status" id="tigrinya_test_MAP_status"></span>
+                        <span id="tigrinya_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="tigrinya_stage_MAP_status"></span>
+                        <span id="tigrinya_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="tigrinya_live_MAP_status"></span>
+                        <span id="tigrinya_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="tigrinya_home"></td>
+                    <td>
+                        <span class="status" id="tigrinya_test_home_status"></span>
+                        <span id="tigrinya_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="tigrinya_stage_home_status"></span>
+                        <span id="tigrinya_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="tigrinya_live_home_status"></span>
+                        <span id="tigrinya_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- turkce -->
+                <tr>
+                    <th colspan="4">turkce</th>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="turkce_MAP"></td>
+                    <td>
+                        <span class="status" id="turkce_test_MAP_status"></span>
+                        <span id="turkce_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="turkce_stage_MAP_status"></span>
+                        <span id="turkce_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="turkce_live_MAP_status"></span>
+                        <span id="turkce_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="turkce_home"></td>
+                    <td>
+                        <span class="status" id="turkce_test_home_status"></span>
+                        <span id="turkce_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="turkce_stage_home_status"></span>
+                        <span id="turkce_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="turkce_live_home_status"></span>
+                        <span id="turkce_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- ukchina (simp) -->
+                <tr>
+                    <th colspan="4">ukchina/simp</th>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="ukchina/simp_MAP"></td>
+                    <td>
+                        <span class="status" id="ukchina/simp_test_MAP_status"></span>
+                        <span id="ukchina/simp_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="ukchina/simp_stage_MAP_status"></span>
+                        <span id="ukchina/simp_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="ukchina/simp_live_MAP_status"></span>
+                        <span id="ukchina/simp_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="ukchina/simp_home"></td>
+                    <td>
+                        <span class="status" id="ukchina/simp_test_home_status"></span>
+                        <span id="ukchina/simp_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="ukchina/simp_stage_home_status"></span>
+                        <span id="ukchina/simp_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="ukchina/simp_live_home_status"></span>
+                        <span id="ukchina/simp_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- ukchina (trad) -->
+                <tr>
+                    <th colspan="4">ukchina/trad</th>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="ukchina/trad_MAP"></td>
+                    <td>
+                        <span class="status" id="ukchina/trad_test_MAP_status"></span>
+                        <span id="ukchina/trad_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="ukchina/trad_stage_MAP_status"></span>
+                        <span id="ukchina/trad_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="ukchina/trad_live_MAP_status"></span>
+                        <span id="ukchina/trad_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="ukchina/trad_home"></td>
+                    <td>
+                        <span class="status" id="ukchina/trad_test_home_status"></span>
+                        <span id="ukchina/trad_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="ukchina/trad_stage_home_status"></span>
+                        <span id="ukchina/trad_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="ukchina/trad_live_home_status"></span>
+                        <span id="ukchina/trad_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+        </td>
+        </table>
+
+        <td valign="top">
+            <table class="tg">
+                <tr>
+                    <th></th>
+                    <th>Test</th>
+                    <th>Stage</th>
+                    <th>Live</th>
+                </tr>
+
+                <!-- ukrainian -->
+                <tr>
+                    <th colspan="4">ukrainian</th>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="ukrainian_MAP"></td>
+                    <td>
+                        <span class="status" id="ukrainian_test_MAP_status"></span>
+                        <span id="ukrainian_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="ukrainian_stage_MAP_status"></span>
+                        <span id="ukrainian_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="ukrainian_live_MAP_status"></span>
+                        <span id="ukrainian_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="ukrainian_home"></td>
+                    <td>
+                        <span class="status" id="ukrainian_test_home_status"></span>
+                        <span id="ukrainian_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="ukrainian_stage_home_status"></span>
+                        <span id="ukrainian_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="ukrainian_live_home_status"></span>
+                        <span id="ukrainian_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- urdu -->
+                <tr>
+                    <th colspan="4">urdu</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="urdu_liveRadio"></td>
+                    <td>
+                        <span class="status" id="urdu_test_liveRadio_status"></span>
+                        <span id="urdu_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="urdu_stage_liveRadio_status"></span>
+                        <span id="urdu_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="urdu_live_liveRadio_status"></span>
+                        <span id="urdu_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="urdu_MAP"></td>
+                    <td>
+                        <span class="status" id="urdu_test_MAP_status"></span>
+                        <span id="urdu_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="urdu_stage_MAP_status"></span>
+                        <span id="urdu_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="urdu_live_MAP_status"></span>
+                        <span id="urdu_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="urdu_home"></td>
+                    <td>
+                        <span class="status" id="urdu_test_home_status"></span>
+                        <span id="urdu_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="urdu_stage_home_status"></span>
+                        <span id="urdu_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="urdu_live_home_status"></span>
+                        <span id="urdu_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- uzbek -->
+                <tr>
+                    <th colspan="4">uzbek</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="uzbek_liveRadio"></td>
+                    <td>
+                        <span class="status" id="uzbek_test_liveRadio_status"></span>
+                        <span id="uzbek_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="uzbek_stage_liveRadio_status"></span>
+                        <span id="uzbek_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="uzbek_live_liveRadio_status"></span>
+                        <span id="uzbek_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="uzbek_MAP"></td>
+                    <td>
+                        <span class="status" id="uzbek_test_MAP_status"></span>
+                        <span id="uzbek_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="uzbek_stage_MAP_status"></span>
+                        <span id="uzbek_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="uzbek_live_MAP_status"></span>
+                        <span id="uzbek_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="uzbek_home"></td>
+                    <td>
+                        <span class="status" id="uzbek_test_home_status"></span>
+                        <span id="uzbek_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="uzbek_stage_home_status"></span>
+                        <span id="uzbek_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="uzbek_live_home_status"></span>
+                        <span id="uzbek_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- vietnamese -->
+                <tr>
+                    <th colspan="4">vietnamese</th>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="vietnamese_MAP"></td>
+                    <td>
+                        <span class="status" id="vietnamese_test_MAP_status"></span>
+                        <span id="vietnamese_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="vietnamese_stage_MAP_status"></span>
+                        <span id="vietnamese_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="vietnamese_live_MAP_status"></span>
+                        <span id="vietnamese_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="vietnamese_home"></td>
+                    <td>
+                        <span class="status" id="vietnamese_test_home_status"></span>
+                        <span id="vietnamese_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="vietnamese_stage_home_status"></span>
+                        <span id="vietnamese_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="vietnamese_live_home_status"></span>
+                        <span id="vietnamese_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- yoruba -->
+                <tr>
+                    <th colspan="4">yoruba</th>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="yoruba_MAP"></td>
+                    <td>
+                        <span class="status" id="yoruba_test_MAP_status"></span>
+                        <span id="yoruba_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="yoruba_stage_MAP_status"></span>
+                        <span id="yoruba_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="yoruba_live_MAP_status"></span>
+                        <span id="yoruba_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="yoruba_home"></td>
+                    <td>
+                        <span class="status" id="yoruba_test_home_status"></span>
+                        <span id="yoruba_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="yoruba_stage_home_status"></span>
+                        <span id="yoruba_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="yoruba_live_home_status"></span>
+                        <span id="yoruba_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- zhongwen/simp -->
+                <tr>
+                    <th colspan="4">zhongwen/simp</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="zhongwen/simp_liveRadio"></td>
+                    <td>
+                        <span class="status" id="zhongwen/simp_test_liveRadio_status"></span>
+                        <span id="zhongwen/simp_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="zhongwen/simp_stage_liveRadio_status"></span>
+                        <span id="zhongwen/simp_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="zhongwen/simp_live_liveRadio_status"></span>
+                        <span id="zhongwen/simp_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="zhongwen/simp_MAP"></td>
+                    <td>
+                        <span class="status" id="zhongwen/simp_test_MAP_status"></span>
+                        <span id="zhongwen/simp_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="zhongwen/simp_stage_MAP_status"></span>
+                        <span id="zhongwen/simp_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="zhongwen/simp_live_MAP_status"></span>
+                        <span id="zhongwen/simp_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="zhongwen/simp_home"></td>
+                    <td>
+                        <span class="status" id="zhongwen/simp_test_home_status"></span>
+                        <span id="zhongwen/simp_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="zhongwen/simp_stage_home_status"></span>
+                        <span id="zhongwen/simp_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="zhongwen/simp_live_home_status"></span>
+                        <span id="zhongwen/simp_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <!-- zhongwen/trad -->
+                <tr>
+                    <th colspan="4">zhongwen/trad</th>
+                </tr>
+                <!-- Live Radio -->
+                <tr>
+                    <td id="zhongwen/trad_liveRadio"></td>
+                    <td>
+                        <span class="status" id="zhongwen/trad_test_liveRadio_status"></span>
+                        <span id="zhongwen/trad_test_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="zhongwen/trad_stage_liveRadio_status"></span>
+                        <span id="zhongwen/trad_stage_liveRadio_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="zhongwen/trad_live_liveRadio_status"></span>
+                        <span id="zhongwen/trad_live_liveRadio_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+                <tr>
+                    <!-- MAP -->
+                    <td id="zhongwen/trad_MAP"></td>
+                    <td>
+                        <span class="status" id="zhongwen/trad_test_MAP_status"></span>
+                        <span id="zhongwen/trad_test_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="zhongwen/trad_stage_MAP_status"></span>
+                        <span id="zhongwen/trad_stage_MAP_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="zhongwen/trad_live_MAP_status"></span>
+                        <span id="zhongwen/trad_live_MAP_renderer"></span>
+                    </td>
+                </tr>
+                <!-- home -->
+                <tr>
+                    <td id="zhongwen/trad_home"></td>
+                    <td>
+                        <span class="status" id="zhongwen/trad_test_home_status"></span>
+                        <span id="zhongwen/trad_test_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="zhongwen/trad_stage_home_status"></span>
+                        <span id="zhongwen/trad_stage_home_renderer"></span>
+                    </td>
+                    <td>
+                        <span class="status" id="zhongwen/trad_live_home_status"></span>
+                        <span id="zhongwen/trad_live_home_renderer"></span>
+                        <br/>
+                    </td>
+                </tr>
+        </td>
+        </table>
+        </td>
+
+        <tr>
+            <td valign="top">
+                <table class="tg">
+                    <tr>
+                        <th colspan="4">Non W2020</th>
+                    </tr>
+                    <tr>
+                        <th></th>
+                        <th>Test</th>
+                        <th>Stage</th>
+                        <th>Live</th>
+                    </tr>
+                    <!-- cymrufyw -->
+                    <tr>
+                        <th colspan="4">cymrufyw</th>
+                    </tr>
+                    <tr>
+                        <!-- Articles -->
+                        <td>article</td>
+                        <td>
+                            <span class="status" id="cymrufyw_test_article_status"></span>
+                            <span id="cymrufyw_test_article_renderer"></span>
+                        </td>
+                        <td>
+                            <span class="status" id="cymrufyw_stage_article_status"></span>
+                            <span id="cymrufyw_stage_article_renderer"></span>
+                        </td>
+                        <td>
+                            <span class="status" id="cymrufyw_live_article_status"></span>
+                            <span id="cymrufyw_live_article_renderer"></span>
+                        </td>
+                    </tr>
+
+                    <!-- news -->
+                    <tr>
+                        <th colspan="4">news</th>
+                    </tr>
+                    <tr>
+                        <!-- article -->
+                        <td>article</td>
+                        <td>
+                            <span class="status" id="news_test_article_status"></span>
+                            <span id="news_test_article_renderer"></span>
+                        </td>
+                        <td>
+                            <span class="status" id="news_stage_article_status"></span>
+                            <span id="news_stage_article_renderer"></span>
+                        </td>
+                        <td>
+                            <span class="status" id="news_live_article_status"></span>
+                            <span id="news_live_article_renderer"></span>
+                        </td>
+                    </tr>
+                    <!-- naidheachdan -->
+                    <tr>
+                        <th colspan="4">naidheachdan</th>
+                    </tr>
+                    <tr>
+                        <!-- article -->
+                        <td>article</td>
+                        <td>
+                            <span class="status" id="naidheachdan_test_article_status"></span>
+                            <span id="naidheachdan_test_article_renderer"></span>
+                        </td>
+                        <td>
+                            <span class="status" id="naidheachdan_stage_article_status"></span>
+                            <span id="naidheachdan_stage_article_renderer"></span>
+                        </td>
+                        <td>
+                            <span class="status" id="naidheachdan_live_article_status"></span>
+                            <span id="naidheachdan_live_article_renderer"></span>
+                        </td>
+                    </tr>
+                    <!-- scotland -->
+                    <tr>
+                        <th colspan="4">scotland</th>
+                    </tr>
+                    <tr>
+                        <!-- home -->
+                        <td id="scotland_home"></td>
+                        <td>
+                            <span class="status" id="scotland_test_home_status"></span>
+                            <span id="scotland_test_home_renderer"></span>
+                        </td>
+                        <td>
+                            <span class="status" id="scotland_stage_home_status"></span>
+                            <span id="scotland_stage_home_renderer"></span>
+                        </td>
+                        <td>
+                            <span class="status" id="scotland_live_home_status"></span>
+                            <span id="scotland_live_home_renderer"></span>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+
+</body>
+
+</html>
